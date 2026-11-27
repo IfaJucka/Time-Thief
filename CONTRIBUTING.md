@@ -10,15 +10,23 @@ To enable parallel development without merge conflicts or overwritten code, each
 
 | Role | Primary Ownership | Description |
 |---|---|---|
-| **Project Leader** | Root config, `src/shared/`, `src/bridge/`, `docs/` | Initial project setup, shared types & architecture, `GameBridge`, Game/UI integration, GitHub branch management & code reviews, final testing & deployment. |
-| **Member A** | `src/ui/` | **React UI:** Main menu, character selection, HUD, timeline selector, Chrono Energy display, interaction & clue panels, settings and pause menu, Impact Report interface, responsive styles. |
-| **Member B** | `src/game3d/` & `public/assets/` | **3D Game:** React Three Fiber `<Canvas>` scenes, player model & `PlayerController`, `ThirdPersonCamera`, `EnvironmentManager`, three timeline 3D environments, collisions & `InteractionSystem`, basic character animations, low-poly `GLB`/placeholder models. |
-| **Member C** | `src/logic/` & `tests/logic/` *(Post-MVP: `src/services/`)* | **Game Logic & Backend:** Pure TS `TimelineManager`, `ChronoCoreSystem`, `ObjectStateEngine`, `PuzzleValidator`, `EventHistory`, `ImpactReportGenerator`, and Vitest unit tests *(Post-MVP Phase 5: Supabase auth, saves, profiles, leaderboards — NOT required for MVP)*. |
+| **Project Lead** | `src/shared/`, `src/bridge/`, root config, `docs/` | Shared contracts & constants, cross-module `GameBridge`, integration, overall architecture, GitHub branch management, PR reviews, final testing & deployment. |
+| **Member A** | `src/ui/` and `src/backend/` | **React UI & Backend:** Main menu, character selection, HUD, timeline selector, Chrono Energy display, interaction & clue panels, settings and pause menu, Impact Report UI, responsive styles, and post-MVP Supabase backend / cloud saves *(not required for offline MVP)*. |
+| **Member B** | `src/game3d/` *(and `public/assets/`)* | **3D Game:** React Three Fiber `<Canvas>` scenes, player model & `PlayerController`, `ThirdPersonCamera`, `EnvironmentManager`, three timeline 3D environments, collisions & `InteractionSystem`, basic character animations, low-poly `GLB`/placeholder models. |
+| **Member C** | `src/logic/` and `tests/logic/` | **Game Logic:** Pure TS `TimelineManager`, `ChronoCoreSystem`, `ObjectStateEngine`, `PuzzleValidator`, `EventHistory`, `ImpactReportGenerator`, and Vitest unit tests. |
 
-### Boundary Rule
-- **Do not edit files outside your owned directory** unless you coordinate with the owner and Project Leader first.
-- Changes to **`src/shared/`** or **`src/bridge/`** affect everyone—propose contract changes in a dedicated PR or discuss with the team before editing.
-- **MVP Isolation:** Member C must not block MVP gameplay with backend/Supabase code; all MVP persistence/state stays client-side in `src/logic/`.
+### Shared Contract & Boundary Rules
+- **`src/shared/` is the single source of truth** for common TypeScript types, interfaces, contracts, and shared constants.
+- **Review before coding:** Every team member must review the relevant contracts in `src/shared/` before starting implementation in their assigned folder.
+- **Reuse—never duplicate:** Members must import and reuse existing shared types from `src/shared/` and must not independently create duplicate definitions.
+- **Propose & approve changes:** If a new shared type or interface is required, propose it to the Project Lead before implementing it. All changes to `src/shared/` require Project Lead review and approval.
+- **Maintain compatibility:** Each member is responsible for ensuring their code remains compatible with `src/shared/` contracts, and multi-module changes must be coordinated across affected developers.
+- **Module isolation:** Do not directly modify another member's assigned module without coordination. Member A must not block the offline single-player MVP with `src/backend/` work.
+
+### Development Workflow
+```text
+Review shared contracts → Implement assigned module → Test → Create Pull Request → Project Lead reviews → Merge
+```
 
 ---
 
@@ -88,12 +96,13 @@ Before opening a PR into `main`:
    - Any cross-module contract dependencies
 
 ### Code Review Rules
-- **Every PR requires at least 1 approval** (from the **Project Leader**, or a peer developer if delegated) before merging.
+- **Every PR requires at least 1 approval** (from the **Project Lead**, or a peer developer if delegated) before merging.
 - Authors **do not merge their own unreviewed PRs** into `main`.
 - Reviewers check for:
-  - Module boundary compliance (`src/logic/` has zero React, Three.js, R3F, Drei, Rapier, or DOM imports!)
+  - Compatibility with `src/shared/` contracts (and Project Lead approval for any `src/shared/` edits)
+  - Module boundary compliance (`src/logic/` has zero React, Three.js, R3F, Drei, Rapier, or DOM imports)
   - Adherence to **DARK CHRONO** palette and `PRD.md` specs
-  - No duplicate utilities, dead code, or accidental edits to another member's files
+  - No duplicate type definitions, dead code, or uncoordinated edits to another member's module
   - Passing build, typecheck, and Vitest tests
 
 ---
@@ -111,10 +120,10 @@ Before opening a PR into `main`:
 
 ## 6. Conflict Resolution & Communication
 
-1. **Prevent conflicts early:** Stick strictly to your module directory (`src/ui/`, `src/game3d/`, or `src/logic/`).
-2. **Contract changes first:** If you need a new field in `GameStateSnapshot`, `ChronoCommand`, or `WorldObjectRuntimeState`, open a contract PR on `src/shared/` and notify the team before writing dependent code.
+1. **Prevent conflicts early:** Stick strictly to your assigned directory (`src/ui/` & `src/backend/` for Member A, `src/game3d/` for Member B, `src/logic/` & `tests/logic/` for Member C).
+2. **Contract changes first:** If you need a new field in `GameSessionState`, `ChronoActionRequest`, `EraObjectState`, or `GameEvent`, propose it to the Project Lead and obtain approval on `src/shared/` before writing dependent code.
 3. **Resolving merge conflicts:**
    - Pull `origin/main` into your feature branch.
-   - Never blindly accept "ours" or "theirs" on shared files (`package.json`, `src/shared/*`, `src/bridge/*`). Inspect both sides or coordinate with the Project Leader.
+   - Never blindly accept "ours" or "theirs" on shared files (`package.json`, `src/shared/*`, `src/bridge/*`). Inspect both sides or coordinate with the Project Lead.
    - Re-run tests and build after resolving conflicts.
 4. **Sync Cadence:** Post brief updates when starting a branch, updating shared interfaces, or opening a PR for review.
