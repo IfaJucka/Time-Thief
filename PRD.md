@@ -24,7 +24,7 @@ Every action creates cascading consequences across centuries, culminating in a *
 2. Prove the core mechanic of **transferable time** through the complete 3D opening level: **The Broken Bridge**.
 3. Demonstrate real-time switching across **three interconnected timelines** (`1920`, `2026`, `2126`) in the **same 3D geographical location** with visible environmental transformations and deterministic causal state changes.
 4. Provide a polished **DARK CHRONO** UI with an interactive HUD, third-person object inspection, limited **Chrono Energy** (`100` capacity), and a **Timeline Impact Report** upon puzzle completion.
-5. Maintain strict separation between React UI (`src/ui/`), 3D world (`src/game3d/`), and pure game logic (`src/logic/`) so all 3 team members can develop concurrently.
+5. Maintain strict separation between React UI & backend (`src/ui/`, `src/backend/` — Member A), 3D world (`src/game3d/` — Member B), and pure game logic (`src/logic/`, `tests/logic/` — Member C), unified by shared contracts in `src/shared/` and `src/bridge/` (Project Lead) so all 3 team members can develop concurrently.
 
 ### 2.2 Long-Term Product Objectives *(FUTURE — Post-MVP)*
 1. Expand into a full **5-world, ~50-level 3D narrative campaign** exploring the five Chrono Core fragments and three endings.
@@ -142,6 +142,7 @@ Explore → Investigate → Manipulate → Switch Timeline → Solve → Review 
 - **NFR-04 — Architectural Isolation:** `src/logic/` must have **zero imports** from `react`, `three`, `@react-three/fiber`, `@react-three/drei`, `@react-three/rapier`, or browser DOM APIs.
 - **NFR-05 — Accessibility:** Never rely on color alone for era or puzzle state—always pair `#C9954B` / `#42BFC2` / `#9169DC` with year labels (`1920` / `2026` / `2126`) and clear icons/text. Maintain legible contrast against `#10131C` and `#171E32`.
 - **NFR-06 — Asset Non-Blocking Rule:** Development must not block on final custom 3D art; simple low-poly geometric placeholders must enable full gameplay testing early, swappable later for `GLTF/GLB` models without rewriting logic.
+- **NFR-07 — Shared Contract Compliance:** `src/shared/` is the single source of truth for cross-module TypeScript types, interfaces, and constants. Every module must reuse and stay compatible with `src/shared/` without duplicating definitions, and any contract additions or changes require Project Lead approval.
 
 ---
 

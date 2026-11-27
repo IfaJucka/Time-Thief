@@ -8,20 +8,21 @@
 
 **TIME THIEF** is a browser-based, **stylized low-poly 3D, third-person time-travel puzzle adventure** using a **strict three-layer decoupled client architecture** so three developers can work in parallel without merge conflicts or tight coupling:
 
-1. **Presentation Layer (`src/ui/` — Member A):** React + TypeScript UI screens, menus, HUD, timeline selector, Chrono Energy display, interaction/clue panels, settings, and the Timeline Impact Report modal.
+1. **Presentation & Backend Layer (`src/ui/` & `src/backend/` — Member A):** React + TypeScript UI screens, menus, HUD, timeline selector, Chrono Energy display, interaction/clue panels, settings, Timeline Impact Report modal, and post-MVP Supabase cloud integration (`src/backend/`).
 2. **3D Engine Layer (`src/game3d/` — Member B):** React Three Fiber (`<Canvas>`), Three.js 3D scenes, `@react-three/drei` helpers, optional `@react-three/rapier` physics/collisions, third-person `PlayerController`, `ThirdPersonCamera`, `EnvironmentManager`, interactive 3D object views (`GLTF/GLB` & low-poly placeholders), and `InteractionSystem`.
-3. **Pure Logic Layer (`src/logic/` — Member C):** Pure TypeScript domain engine owning `TimelineManager`, `ChronoCoreSystem`, `ObjectStateEngine`, `PuzzleValidator`, `EventHistory`, and `ImpactReportGenerator`.
-4. **Shared Contracts & Bridge (`src/shared/`, `src/bridge/` — Project Leader):** TypeScript interfaces, DARK CHRONO tokens, level schemas, and a lightweight typed `GameBridge` + `EventBus` connecting React UI, the 3D world, and pure game logic.
+3. **Pure Logic Layer (`src/logic/` & `tests/logic/` — Member C):** Pure TypeScript domain engine implementing `GameEnginePort` (from `src/shared/`) and owning `TimelineManager`, `ChronoCoreSystem`, `ObjectStateEngine`, `PuzzleValidator`, `EventHistory`, `ImpactReportGenerator`, and Vitest unit tests. Must NEVER import from `src/bridge/`, `src/ui/`, `src/game3d/`, React, or Three.js.
+4. **Shared Contracts & Bridge (`src/shared/`, `src/bridge/` — Project Lead):** Single source of truth for TypeScript types, interfaces, `GameEnginePort`, contracts, and constants (`src/shared/`), plus the typed `GameBridge` and adapters (`src/bridge/`) and overall coordination/integration.
 
 ### Mandatory Architectural Boundaries
 1. **React UI stays separate from 3D world implementation:** `src/ui/` renders 2D HTML/CSS overlays and never manipulates Three.js meshes, cameras, or physics bodies directly.
 2. **React Three Fiber renders the 3D game inside a `<Canvas>`:** `App.tsx` mounts a thin `<GameCanvas />` host when gameplay is active, keeping 3D components inside `src/game3d/`.
-3. **`src/logic/` remains 100% pure TypeScript:** It MUST NOT import `react`, `react-dom`, `three`, `@react-three/fiber`, `@react-three/drei`, `@react-three/rapier`, `window`, or `document`.
-4. **The bridge layer mediates all cross-layer communication:** `src/bridge/` routes user/3D commands to `src/logic/` and broadcasts immutable state snapshots back to `src/ui/` and `src/game3d/`.
-5. **Shared types and contracts come first:** `src/shared/` is finalized in Phase 1 before parallel Phase 2 work begins.
-6. **Avoid monolithic components:** Never dump gameplay loop, physics, camera math, and UI into `App.tsx` or a single React component.
-7. **Avoid unnecessary global state or tight coupling:** Use scoped subscriptions to `GameBridge` snapshots rather than bloated global stores.
-8. **Deterministic truth lives in `src/logic/`:** The 3D scene visualizes state snapshots; it never invents or forks puzzle rules.
+3. **`src/logic/` remains 100% pure TypeScript:** It MUST NOT import from `src/bridge/`, `src/ui/`, `src/game3d/`, `react`, `react-dom`, `three`, `@react-three/fiber`, `@react-three/drei`, `@react-three/rapier`, `window`, or `document`. It depends solely on `src/shared/` (`GameEnginePort`).
+4. **The bridge layer mediates all cross-layer communication:** `src/bridge/` routes user/3D commands to `src/logic/` and broadcasts immutable `GameSessionState` snapshots back to `src/ui/` and `src/game3d/`.
+5. **`src/shared/` is the single source of truth:** Every developer must review relevant contracts in `src/shared/` before implementing their module, reuse existing shared types without creating duplicates, and keep their module compatible with `src/shared/`.
+6. **Contract governance & coordination:** Propose new shared types/interfaces to the Project Lead before implementing; any change to `src/shared/` requires Project Lead review and approval. Multi-module changes must be coordinated across affected developers, and no member may directly modify another member's module without coordination.
+7. **Avoid monolithic components:** Never dump gameplay loop, physics, camera math, and UI into `App.tsx` or a single React component.
+8. **Avoid unnecessary global state or tight coupling:** Use scoped subscriptions to `GameBridge` snapshots rather than bloated global stores.
+9. **Deterministic truth lives in `src/logic/`:** The 3D scene visualizes state snapshots; it never invents or forks puzzle rules.
 
 ---
 
@@ -37,8 +38,9 @@ flowchart TD
     end
 
     subgraph Bridge["Bridge & Contracts (src/bridge/ & src/shared/)"]
-        GameBridge["GameBridge (Snapshot Store & Command Dispatcher)"]
-        EventBus["Typed EventBus (UI <-> 3D <-> Logic)"]
+        Shared["src/shared/ (Contracts & GameEnginePort)"]
+        GameBridge["GameBridge (gameBridge.ts)"]
+        Adapters["UIGameAdapter & GameEventAdapter"]
     end
 
     subgraph Game3D["3D World Layer - Three.js / R3F (src/game3d/ - Member B)"]
@@ -58,18 +60,20 @@ flowchart TD
         History["EventHistory & ImpactReportGenerator"]
     end
 
-    subgraph FutureCloud["Post-MVP Cloud Layer (FUTURE - Member C)"]
+    subgraph FutureCloud["Post-MVP Cloud Layer (FUTURE - src/backend/ - Member A)"]
         Supa["Supabase (Auth, Cloud Saves, Profiles, Leaderboards)"]
     end
 
-    Screens --> GameBridge
-    HUD --> GameBridge
-    Clue --> GameBridge
-    Report --> GameBridge
+    Screens --> Adapters
+    HUD --> Adapters
+    Clue --> Adapters
+    Report --> Adapters
 
-    GameBridge <--> Logic
-    EventBus <--> Game3D
-    GameBridge <--> Game3D
+    Adapters <--> GameBridge
+    GameBridge --> Shared
+    GameBridge --> Logic
+    Logic --> Shared
+    Adapters <--> Game3D
 
     TimelineMgr --> ObjEngine
     ChronoSys --> ObjEngine
@@ -99,7 +103,7 @@ flowchart TD
 
 ### 3.2 Physics & Dependency Compatibility Note
 - **Core 3D Stack:** `three`, `@react-three/fiber`, `@react-three/drei`, and optionally `@react-three/rapier` for rigid-body physics and colliders.
-- **Phase 1 Compatibility Check:** Before installing dependencies in Phase 1, the Project Leader must verify React major version compatibility across `react`, `@react-three/fiber`, `@react-three/drei`, and `@react-three/rapier`.
+- **Phase 1 Compatibility Check:** Before installing dependencies in Phase 1, the Project Lead must verify React major version compatibility across `react`, `@react-three/fiber`, `@react-three/drei`, and `@react-three/rapier`.
 - **Simple MVP Alternative:** If `@react-three/rapier` introduces bundler/WASM friction or feels overly heavy for a single-level MVP, `PlayerController` can use **deterministic AABB / cylinder-vs-box & river-plane boundary checks** in `src/game3d/systems/` while keeping the exact same interface.
 
 ---
@@ -145,45 +149,28 @@ flowchart TD
 ## 5. Data Flow & State Synchronization
 
 ```text
-[1. Input] User presses 'F' near 1920 Seed (in 3D scene) OR clicks "Transfer" / "2126" (in React HUD)
+[1. Input] User presses interact near 1920 Seed (3D scene) OR clicks "Transfer" / "2126" (React HUD)
       │
       ▼
-[2. Bridge Dispatch] GameBridge.dispatch({ type: 'TRANSFER_TIME', objectId: 'seed_plot' })
+[2. Bridge Dispatch] uiAdapter.transferTime('seed-plot') → GameBridge.dispatchCommand(...)
       │
       ▼
-[3. Pure Logic (src/logic/)]
-      ├─ ChronoCoreSystem verifies energy >= 25 and heldCharge === 'GROWTH_TIME'
+[3. Pure Logic (src/logic/ implementing GameEnginePort from src/shared/)]
+      ├─ ChronoCoreSystem verifies energy >= 25 and heldCharge.essence === 'GROWTH_TIME'
       ├─ Deducts 25 Chrono Energy, clears heldCharge
-      ├─ ObjectStateEngine updates seed_plot (1920: INFUSED → 2026: YOUNG_TREE → 2126: GIANT_ROOT_BRIDGE)
-      ├─ EventHistory appends TemporalEvent
+      ├─ ObjectStateEngine updates 'seed-plot' (PAST: INFUSED → PRESENT: YOUNG_TREE → FUTURE: GIANT_TREE_ROOT_BRIDGE)
+      ├─ EventHistory appends GameEvent (CHRONO_ACTION & OBJECT_STATE_CHANGED)
       ├─ PuzzleValidator checks win conditions
-      └─ Returns new immutable GameStateSnapshot
+      └─ Returns LogicStepResult { state: GameSessionState, events: GameEvent[] }
       │
       ▼
-[4. Bridge Broadcast] GameBridge notifies subscribed listeners
-      ├──► [React UI (src/ui/)] updates Energy bar (75/100), clears Charge slot, updates Clue Panel
-      └──► [R3F 3D World (src/game3d/)] swaps Seed mesh/scale/VFX, updates 2026/2126 colliders & materials
+[4. Bridge Broadcast (gameEventAdapter.ts)]
+      ├──► [React UI (src/ui/)] UIHudEventSink updates Energy bar (75/100), clears Charge slot, updates Clue Panel
+      └──► [R3F 3D World (src/game3d/)] World3DEventSink swaps Seed mesh/scale/VFX, updates 2026/2126 colliders & materials
 ```
 
-### Shared State Snapshot Contract (`src/shared/types.ts` — PLANNED)
-```ts
-export type TimelineId = '1920' | '2026' | '2126';
-
-export interface GameStateSnapshot {
-  levelId: string;
-  status: 'MENU' | 'PLAYING' | 'PAUSED' | 'COMPLETED';
-  selectedCharacterId: CharacterId;
-  activeTimeline: TimelineId;
-  chronoEnergy: number;          // MVP max: 100
-  maxChronoEnergy: number;       // MVP: 100
-  heldCharge: TimeCharge | null; // e.g., 'GROWTH_TIME'
-  focusedObjectId: string | null;
-  inspectedObjectId: string | null;
-  objects: Record<string, WorldObjectRuntimeState>;
-  eventHistory: TemporalEvent[];
-  impactReport: TimelineImpactReport | null;
-}
-```
+### Shared Contracts & Pure Engine Port (`src/shared/` & `src/bridge/` — IMPLEMENTED)
+All cross-module types, constants, and `GameEnginePort` live in `src/shared/` (re-exported via `src/shared/index.ts`), including `GameSessionState`, `TimelineState`, `ChronoCoreState`, `ChronoActionRequest`, `WorldObject`, `EraObjectState`, `PuzzleState`, `GameEvent`, `GameEnginePort`, `LogicStepResult`, and `constants.ts`. `src/logic/` implements `GameEnginePort` directly against `src/shared/` without importing `src/bridge/`, while `src/bridge/` (`gameBridge.ts`, `uiGameAdapter.ts`, `gameEventAdapter.ts`) coordinates React UI (`src/ui/`) and the 3D scene (`src/game3d/`).
 
 ---
 
@@ -198,15 +185,15 @@ To prevent art bottlenecks during MVP development:
 
 ## 7. Future Supabase Integration *(FUTURE — Phase 5)*
 
-No backend exists or is required for the offline single-player MVP. In **Phase 5**, Member C will add `src/services/supabase/`:
+No backend exists or is required for the offline single-player MVP. In **Phase 5**, Member A will implement `src/backend/` (`supabase/`, `services/`, `types/`):
 - **Authentication:** Optional account login for cross-device progress.
 - **Cloud Saves & Profiles:** Sync unlocked worlds, character cosmetics, and best level completions.
 - **Leaderboards & Daily Challenges:** Store verified completion times, remaining Chrono Energy, and Daily Chrono Challenge streaks.
-- Neither `src/game3d/` nor `src/logic/` will call Supabase directly; `GameBridge` or an app-level sync hook triggers cloud sync after level completion.
+- Neither `src/game3d/` nor `src/logic/` will call Supabase directly; `GameBridge` or an app-level sync hook triggers cloud sync via `src/backend/` after level completion.
 
 ---
 
-## 8. Final Target Folder Structure & Responsibilities *(PLANNED)*
+## 8. Final Target Folder Structure & Responsibilities *(PLANNED — `src/shared/` & `src/bridge/` IMPLEMENTED)*
 
 ```text
 Time-Thief/
@@ -223,27 +210,38 @@ Time-Thief/
 ├── src/
 │   ├── main.tsx                         # React DOM entry point
 │   ├── App.tsx                          # Thin top-level screen router hosting UI + GameCanvas
-│   ├── shared/                          # Project Leader: Cross-layer contracts & constants
-│   │   ├── theme.ts                     # DARK CHRONO hex palette & era accent colors
-│   │   ├── types.ts                     # TimelineId, GameStateSnapshot, Commands, Events
-│   │   ├── characters.ts                # Arin Vale, Mira Sol, Kael Voss, Nyra Quinn metadata
-│   │   └── levels.ts                    # Shared level IDs & landmark anchor coordinates
-│   ├── bridge/                          # Project Leader: Cross-layer communication
-│   │   ├── EventBus.ts                  # Typed pub/sub for transient VFX/SFX/interaction events
-│   │   └── GameBridge.ts                # Connects GameStateManager to React UI & R3F 3D scene
-│   ├── ui/                              # Member A: React UI (2D overlays only)
+│   ├── shared/                          # Project Lead: Single source of truth (IMPLEMENTED)
+│   │   ├── constants.ts                 # Timeline constants, MVP energy costs, DARK CHRONO colors
+│   │   ├── timeline.types.ts            # TimelineEra, TimelineState, TimelineTransition
+│   │   ├── chrono.types.ts              # ChronoCoreState, ChronoActionRequest, ChronoActionResult
+│   │   ├── world.types.ts               # WorldObject, EraObjectState, WorldLayout, WorldPosition
+│   │   ├── puzzle.types.ts              # PuzzleStatus, PuzzleState, LevelCompletionInfo
+│   │   ├── events.types.ts              # Discriminated union GameEvent types
+│   │   ├── game.types.ts                # GameSessionState, PlayerState, LevelState, GameEnginePort
+│   │   └── index.ts                     # Barrel re-exports for all shared contracts
+│   ├── bridge/                          # Project Lead: Cross-layer integration bridge (IMPLEMENTED)
+│   │   ├── bridge.types.ts              # BridgeCommand, BridgeCommandResponse, BridgeError, IGameBridge
+│   │   ├── gameBridge.ts                # Central coordinator wiring GameEnginePort to UI & 3D sinks
+│   │   ├── uiGameAdapter.ts             # UIGameAdapter for React screens, HUD, and modals
+│   │   ├── gameEventAdapter.ts          # UIHudEventSink, World3DEventSink, GameSystemEventSink
+│   │   └── index.ts                     # Barrel re-exports for bridge layer
+│   ├── ui/                              # Member A: React UI (2D overlays only — PLANNED)
 │   │   ├── components/                  # Reusable DARK CHRONO buttons, badges, modals
 │   │   ├── screens/                     # MainMenu, CharacterSelect, SettingsModal, PauseModal
 │   │   ├── hud/                         # GameHUD, TimelineSwitcher, ChronoEnergyBar, CluePanel, ImpactReport
 │   │   └── styles/                      # darkChrono.css & responsive layout rules
-│   ├── game3d/                          # Member B: Three.js / React Three Fiber 3D World
+│   ├── backend/                         # Member A: Post-MVP Supabase integration (FUTURE)
+│   │   ├── supabase/                    # Supabase client configuration
+│   │   ├── services/                    # Auth, cloud saves, leaderboard services
+│   │   └── types/                       # Backend DTOs and schema mappings
+│   ├── game3d/                          # Member B: Three.js / React Three Fiber 3D World (PLANNED)
 │   │   ├── scenes/                      # GameCanvas.tsx, BrokenBridgeScene.tsx
 │   │   ├── player/                      # PlayerController.tsx, PlayerModel.tsx (Arin Vale)
 │   │   ├── camera/                      # ThirdPersonCamera.tsx (follow + raycast obstruction)
 │   │   ├── environment/                 # EnvironmentManager.tsx, RiverTerrain.tsx, EraLighting.tsx
 │   │   ├── objects/                     # Interactive 3D entities (Tree, Bridge, SeedPlot, ChronoAnchor)
 │   │   └── systems/                     # InteractionSystem.ts, CollisionHelpers.ts
-│   └── logic/                           # Member C: Pure TypeScript (NO React/Three/R3F/Rapier/DOM)
+│   └── logic/                           # Member C: Pure TypeScript (NO React/Three/R3F/Rapier/DOM — PLANNED)
 │       ├── timeline/                    # TimelineManager.ts
 │       ├── chrono/                      # ChronoCoreSystem.ts (Extract, Transfer, Energy rules)
 │       ├── puzzle/                      # ObjectStateEngine.ts, PuzzleValidator.ts, levels/brokenBridge.ts
@@ -251,6 +249,15 @@ Time-Thief/
 │       ├── reports/                     # ImpactReportGenerator.ts
 │       └── GameStateManager.ts          # Coordinates pure logic subsystems & emits snapshots
 └── tests/
-    └── logic/                           # Member C: Vitest unit tests for pure game logic
+    └── logic/                           # Member C: Vitest unit tests for pure game logic (PLANNED)
         └── brokenBridge.test.ts
 ```
+
+---
+
+## 9. Pending Team Decisions *(Unresolved — Requires Team Agreement Before Phase 2/3)*
+
+1. **3D Keyboard Input vs. UI Button Ownership:** Decide whether pressing interaction keys (`E` / `F`) in `src/game3d/` triggers `EXTRACT_TIME` / `TRANSFER_TIME` directly via `GameBridge`, or only opens/updates `INSPECT_OBJECT` while React HUD buttons trigger Extract/Transfer (or support both).
+2. **Player Position Synchronization Frequency:** Decide whether `PlayerController` (`src/game3d/`) dispatches `UPDATE_PLAYER_POSITION` continuously, throttled (e.g., 10–15 Hz), or only on zone/anchor entry so React HUD subscribers avoid unnecessary per-frame re-renders.
+3. **Safe Timeline Switching Position Authority:** Decide whether safe riverbank repositioning (when switching eras while standing over unbridged river water or inside solid geometry) is computed inside `src/logic/` (`switchTimeline`) using `WorldLayout` anchors, or handled by `src/game3d/` upon `TIMELINE_CHANGED`.
+4. **Puzzle Completion Trigger:** Decide whether `src/logic/` automatically runs `PuzzleValidator` inside `updatePlayerState` when the player enters `'chrono-anchor'` in `FUTURE` (`2126`), or requires an explicit interact command on `'chrono-anchor'`.
