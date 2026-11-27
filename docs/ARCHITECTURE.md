@@ -1,6 +1,6 @@
 # System Architecture — TIME THIEF
 
-**Status:** **PLANNED Architecture Specification** *(Repository currently contains documentation only; `package.json` and `src/` are not yet scaffolded.)*
+**Status:** **Phase 1 Implemented / Phase 2 Ready** *(Vite + React + TypeScript + Three.js/R3F scaffold, baseline `GameCanvas`, `src/shared/`, and `src/bridge/` are **IMPLEMENTED**; Phase 2–4 gameplay modules are **PLANNED**; Phase 5 cloud/campaign features are **FUTURE**.)*
 
 ---
 
@@ -114,15 +114,15 @@ flowchart TD
 
 | Component | Module | Core Responsibilities |
 |---|---|---|
-| **`PlayerController`** | `src/game3d/player/` | Reads `WASD`/Arrow keys (plus optional mobile virtual joystick), computes camera-relative XZ movement vector, smoothly rotates the character mesh toward movement direction, triggers walk/idle/interact animations, and applies collision resolution. |
+| **`PlayerController`** | `src/game3d/player/` | Reads `WASD`/Arrow keys (plus optional mobile virtual joystick), computes camera-relative XZ movement vector, smoothly rotates the character mesh toward movement direction, throttles `UPDATE_PLAYER_POSITION` to `~10 Hz`, and applies safe positions returned by `src/logic/` on timeline switches. |
 | **`ThirdPersonCamera`** | `src/game3d/camera/` | Smoothly follows the player's world position with damped interpolation (`lerp`), supports gentle yaw orbit (mouse drag or `Q`/`E`), and prevents camera clipping behind cliffs/trees. |
 | **`EnvironmentManager`** | `src/game3d/environment/` | Renders the shared 3D terrain, river, sky/fog, and era-specific lighting (`1920` warm amber, `2026` teal dusk, `2126` violet overgrowth) and toggles era-specific environment props cleanly. |
-| **`InteractionSystem`** | `src/game3d/systems/` | Checks Euclidean distance between player and active 3D interactables each frame; selects the nearest valid target within `interactionRadius` (e.g., `3.0` world units), highlights it in **Chrono Cyan** (`#42D9D0`), and emits inspect/action commands to `GameBridge`. |
-| **`TimelineManager`** | `src/logic/timeline/` | Tracks `activeTimeline` (`'1920' | '2026' | '2126'`), validates era switches, and enforces timeline switching energy cost (`0` in MVP). |
-| **`ChronoCoreSystem`** | `src/logic/chrono/` | Manages `chronoEnergy` (`100` max), `heldCharge` (`1` slot in MVP), and executes `EXTRACT` (`25` Energy) and `TRANSFER` (`25` Energy); reserves `FREEZE`, `ACCELERATE`, and `RESTORE` command hooks for Post-MVP. |
+| **`InteractionSystem`** | `src/game3d/systems/` | Checks Euclidean distance between player and active 3D interactables each frame; selects the nearest valid target within `interactionRadius` (`3.0` world units), highlights it in **Chrono Cyan** (`#42D9D0`), and dispatches `GameBridge` commands (`E` = Extract Time, `F` = Transfer Time, plus explicit interaction with `'chrono-anchor'` in `FUTURE`). |
+| **`TimelineManager`** | `src/logic/timeline/` | Tracks `activeEra` (`'PAST' | 'PRESENT' | 'FUTURE'`), validates era switches (`0` energy cost in MVP), and determines safe player riverbank coordinates when switching timelines. |
+| **`ChronoCoreSystem`** | `src/logic/chrono/` | Manages `currentEnergy` (`100` max), `heldCharge` (`1` slot in MVP), and executes `EXTRACT_TIME` (`25` Energy) and `TRANSFER_TIME` (`25` Energy); reserves Freeze, Accelerate, and Restore for Post-MVP. |
 | **`ObjectStateEngine`** | `src/logic/puzzle/` | Holds per-object temporal states across all 3 eras and evaluates deterministic causal rules whenever an earlier-era object is modified. |
-| **`PuzzleValidator`** | `src/logic/puzzle/` | Evaluates level win criteria (e.g., player reaches `chrono_anchor_2126` while `seed_tree` is in `GIANT_ROOT_BRIDGE` state in `2126`). |
-| **`ImpactReportGenerator`** | `src/logic/reports/` | Transforms `EventHistory` and before/after world snapshots into a structured `TimelineImpactReport` for the React UI. |
+| **`PuzzleValidator`** | `src/logic/puzzle/` | Validates level completion when the player explicitly interacts with `'chrono-anchor'` in the `FUTURE` (`2126`) timeline while `'seed-plot'` is in `GIANT_TREE_ROOT_BRIDGE` state. |
+| **`ImpactReportGenerator`** | `src/logic/reports/` | Transforms `EventHistory` and before/after world snapshots into a structured `LevelCompletionInfo` report for the React UI. |
 
 ### 4.2 MVP Gameplay Engineering Approaches
 
@@ -136,23 +136,27 @@ flowchart TD
 3. **Camera Obstruction Handling:**
    - Cast a lightweight Three.js `Raycaster` from the player's shoulder pivot toward the desired `ThirdPersonCamera` offset.
    - If environment geometry (cliff, giant trunk) intersects the ray closer than the target distance, pull the camera forward just inside the hit distance (`hitDistance - 0.35`) with smooth damping so the player never disappears behind terrain.
-4. **Interaction Distance & Targeting:**
-   - Each interactive 3D object has a world position and `interactionRadius` (default `2.8`–`3.5` units).
-   - `InteractionSystem` finds the closest eligible object in the active timeline, informs `GameBridge` (`focusedObjectId`), and renders a floating Chrono Cyan ring/indicator in 3D space.
+4. **Interaction Distance, Input & Targeting:**
+   - Each interactive 3D object has a world position and `interactionRadius` (`DEFAULT_INTERACTION_RADIUS = 3`).
+   - `InteractionSystem` finds the closest eligible object in the active timeline, informs `GameBridge` (`FOCUS_OBJECT`), and renders a floating Chrono Cyan ring/indicator in 3D space.
+   - **Shared Command Routing:** Pressing `E` triggers Extract Time and `F` triggers Transfer Time in the 3D scene; React HUD buttons also trigger Extract Time and Transfer Time. Both input paths dispatch the exact same `GameBridge` commands (`EXTRACT_TIME` / `TRANSFER_TIME`).
 5. **Timeline Switching & Safe Positioning:**
    - All three timelines share **identical world origin `(0, 0, 0)` and landmark coordinates** (riverbank, bridge span, mature tree location, seed/young-tree/giant-tree location, and east-bank Chrono Anchor).
-   - Switching eras (`1`/`2`/`3` or HUD button) swaps `activeTimeline` in `TimelineManager`.
-   - **Soft-Lock Prevention:** Before finalizing a visual spawn in the target era, `src/game3d/` verifies whether the player's `(x, z)` lies inside a solid obstacle or over unbridged river water in the destination era; if blocked, the player is smoothly placed at the nearest safe riverbank anchor on their current side of the river.
+   - Switching eras (`1`/`2`/`3` or HUD button) routes through `GameBridge` to `TimelineManager`.
+   - **Logic-Authoritative Soft-Lock Prevention:** Pure logic (`src/logic/`) validates the destination era and determines the safe world position (e.g., clamping to `WorldLayout.safeWestBankAnchor` or `safeEastBankAnchor` if the player's `(x, z)` would land over unbridged river water or inside solid geometry), returning the resolved `player.position` in `GameSessionState`. The 3D system (`src/game3d/`) applies that returned position to the player character.
+6. **Player Position Sync & Puzzle Completion:**
+   - `PlayerController` throttles `UPDATE_PLAYER_POSITION` dispatches to approximately `10 Hz` (~`100 ms` intervals) to avoid unnecessary React HUD updates every rendered frame.
+   - Level completion requires the player to **explicitly interact with `'chrono-anchor'` in the `FUTURE` (`2126`) timeline**; `PuzzleValidator` in `src/logic/` validates the win condition and emits `PUZZLE_COMPLETED`.
 
 ---
 
 ## 5. Data Flow & State Synchronization
 
 ```text
-[1. Input] User presses interact near 1920 Seed (3D scene) OR clicks "Transfer" / "2126" (React HUD)
+[1. Input] User presses 'E' (Extract) / 'F' (Transfer) in 3D scene OR clicks Extract / Transfer / Timeline button in React HUD
       │
       ▼
-[2. Bridge Dispatch] uiAdapter.transferTime('seed-plot') → GameBridge.dispatchCommand(...)
+[2. Bridge Dispatch] Both inputs use the same GameBridge commands (uiAdapter.transferTime('seed-plot') / bridge.dispatchCommand(...))
       │
       ▼
 [3. Pure Logic (src/logic/ implementing GameEnginePort from src/shared/)]
@@ -193,14 +197,15 @@ No backend exists or is required for the offline single-player MVP. In **Phase 5
 
 ---
 
-## 8. Final Target Folder Structure & Responsibilities *(PLANNED — `src/shared/` & `src/bridge/` IMPLEMENTED)*
+## 8. Final Target Folder Structure & Responsibilities *(Phase 1 Scaffold, `src/shared/` & `src/bridge/` IMPLEMENTED)*
 
 ```text
 Time-Thief/
-├── index.html                           # Vite HTML entry
-├── package.json                         # Dependencies & npm scripts
-├── tsconfig.json                        # Strict TypeScript configuration
-├── vite.config.ts                       # Vite bundler configuration
+├── index.html                           # Vite HTML entry (IMPLEMENTED)
+├── package.json                         # Dependencies & npm scripts (IMPLEMENTED)
+├── tsconfig.json                        # Strict TypeScript configuration (IMPLEMENTED)
+├── vite.config.ts                       # Vite bundler configuration (IMPLEMENTED)
+├── vitest.config.ts                     # Vitest unit-test configuration (IMPLEMENTED)
 ├── public/
 │   └── assets/
 │       ├── models/                      # Member B: Low-poly GLTF/GLB characters, trees, bridges, props
@@ -208,8 +213,8 @@ Time-Thief/
 │       ├── audio/                       # Member B/A: Ambient era loops & Chrono Core SFX
 │       └── fonts/                       # Member A: DARK CHRONO display/body fonts
 ├── src/
-│   ├── main.tsx                         # React DOM entry point
-│   ├── App.tsx                          # Thin top-level screen router hosting UI + GameCanvas
+│   ├── main.tsx                         # React DOM entry point (IMPLEMENTED)
+│   ├── App.tsx                          # Thin top-level shell hosting UI + GameCanvas (IMPLEMENTED)
 │   ├── shared/                          # Project Lead: Single source of truth (IMPLEMENTED)
 │   │   ├── constants.ts                 # Timeline constants, MVP energy costs, DARK CHRONO colors
 │   │   ├── timeline.types.ts            # TimelineEra, TimelineState, TimelineTransition
@@ -225,22 +230,22 @@ Time-Thief/
 │   │   ├── uiGameAdapter.ts             # UIGameAdapter for React screens, HUD, and modals
 │   │   ├── gameEventAdapter.ts          # UIHudEventSink, World3DEventSink, GameSystemEventSink
 │   │   └── index.ts                     # Barrel re-exports for bridge layer
-│   ├── ui/                              # Member A: React UI (2D overlays only — PLANNED)
+│   ├── ui/                              # Member A: React UI (2D overlays only — Preview IMPLEMENTED, MVP Screens PLANNED)
 │   │   ├── components/                  # Reusable DARK CHRONO buttons, badges, modals
 │   │   ├── screens/                     # MainMenu, CharacterSelect, SettingsModal, PauseModal
-│   │   ├── hud/                         # GameHUD, TimelineSwitcher, ChronoEnergyBar, CluePanel, ImpactReport
-│   │   └── styles/                      # darkChrono.css & responsive layout rules
+│   │   ├── hud/                         # PreviewOverlay (IMPLEMENTED); GameHUD, TimelineSwitcher, CluePanel, ImpactReport (PLANNED)
+│   │   └── styles/                      # darkChrono.css (IMPLEMENTED) & responsive layout rules
 │   ├── backend/                         # Member A: Post-MVP Supabase integration (FUTURE)
 │   │   ├── supabase/                    # Supabase client configuration
 │   │   ├── services/                    # Auth, cloud saves, leaderboard services
 │   │   └── types/                       # Backend DTOs and schema mappings
-│   ├── game3d/                          # Member B: Three.js / React Three Fiber 3D World (PLANNED)
-│   │   ├── scenes/                      # GameCanvas.tsx, BrokenBridgeScene.tsx
-│   │   ├── player/                      # PlayerController.tsx, PlayerModel.tsx (Arin Vale)
-│   │   ├── camera/                      # ThirdPersonCamera.tsx (follow + raycast obstruction)
-│   │   ├── environment/                 # EnvironmentManager.tsx, RiverTerrain.tsx, EraLighting.tsx
-│   │   ├── objects/                     # Interactive 3D entities (Tree, Bridge, SeedPlot, ChronoAnchor)
-│   │   └── systems/                     # InteractionSystem.ts, CollisionHelpers.ts
+│   ├── game3d/                          # Member B: Three.js / React Three Fiber 3D World (Phase 1 Canvas IMPLEMENTED, Gameplay PLANNED)
+│   │   ├── scenes/                      # GameCanvas.tsx (IMPLEMENTED), BrokenBridgeScene.tsx (PLANNED)
+│   │   ├── player/                      # PlaceholderPlayer.tsx (IMPLEMENTED), PlayerController.tsx (PLANNED)
+│   │   ├── camera/                      # ThirdPersonCamera.tsx (Baseline IMPLEMENTED, Follow/Obstruction PLANNED)
+│   │   ├── environment/                 # LowPolyEnvironment.tsx (IMPLEMENTED), EnvironmentManager.tsx (PLANNED)
+│   │   ├── objects/                     # Interactive 3D entities (Tree, Bridge, SeedPlot, ChronoAnchor — PLANNED)
+│   │   └── systems/                     # InteractionSystem.ts, CollisionHelpers.ts (PLANNED)
 │   └── logic/                           # Member C: Pure TypeScript (NO React/Three/R3F/Rapier/DOM — PLANNED)
 │       ├── timeline/                    # TimelineManager.ts
 │       ├── chrono/                      # ChronoCoreSystem.ts (Extract, Transfer, Energy rules)
@@ -249,15 +254,22 @@ Time-Thief/
 │       ├── reports/                     # ImpactReportGenerator.ts
 │       └── GameStateManager.ts          # Coordinates pure logic subsystems & emits snapshots
 └── tests/
-    └── logic/                           # Member C: Vitest unit tests for pure game logic (PLANNED)
-        └── brokenBridge.test.ts
+    └── logic/                           # Member C: Vitest unit tests (sharedContracts.test.ts IMPLEMENTED, brokenBridge.test.ts PLANNED)
 ```
 
 ---
 
-## 9. Pending Team Decisions *(Unresolved — Requires Team Agreement Before Phase 2/3)*
+## 9. Finalized MVP Integration Decisions *(Approved for Phase 2)*
 
-1. **3D Keyboard Input vs. UI Button Ownership:** Decide whether pressing interaction keys (`E` / `F`) in `src/game3d/` triggers `EXTRACT_TIME` / `TRANSFER_TIME` directly via `GameBridge`, or only opens/updates `INSPECT_OBJECT` while React HUD buttons trigger Extract/Transfer (or support both).
-2. **Player Position Synchronization Frequency:** Decide whether `PlayerController` (`src/game3d/`) dispatches `UPDATE_PLAYER_POSITION` continuously, throttled (e.g., 10–15 Hz), or only on zone/anchor entry so React HUD subscribers avoid unnecessary per-frame re-renders.
-3. **Safe Timeline Switching Position Authority:** Decide whether safe riverbank repositioning (when switching eras while standing over unbridged river water or inside solid geometry) is computed inside `src/logic/` (`switchTimeline`) using `WorldLayout` anchors, or handled by `src/game3d/` upon `TIMELINE_CHANGED`.
-4. **Puzzle Completion Trigger:** Decide whether `src/logic/` automatically runs `PuzzleValidator` inside `updatePlayerState` when the player enters `'chrono-anchor'` in `FUTURE` (`2126`), or requires an explicit interact command on `'chrono-anchor'`.
+1. **Input Ownership (`E` / `F` + React HUD Buttons):**
+   - `E` triggers **Extract Time** and `F` triggers **Transfer Time** in the 3D scene.
+   - React HUD buttons also support **Extract Time** and **Transfer Time**.
+   - Both input paths dispatch the exact same `GameBridge` commands (`EXTRACT_TIME` and `TRANSFER_TIME`).
+2. **Player Position Synchronization (`~10 Hz` Throttled):**
+   - `PlayerController` throttles `UPDATE_PLAYER_POSITION` dispatches to approximately `10 Hz` (~`100 ms`), avoiding unnecessary React HUD re-renders on every rendered frame.
+3. **Safe Timeline Switching Authority (Logic Decides, 3D Applies):**
+   - Pure game logic (`src/logic/`) validates the destination timeline and determines the safe world position using `WorldLayout` bounds/anchors, returning it in `GameSessionState.player.position`.
+   - The 3D system (`src/game3d/`) applies that returned position to the player character on timeline transitions.
+4. **Puzzle Completion Trigger (Explicit Anchor Interaction in `FUTURE`):**
+   - The player must **explicitly interact with the Chrono Anchor (`'chrono-anchor'`) in the `FUTURE` (`2126`) timeline**.
+   - `PuzzleValidator` in pure game logic (`src/logic/`) validates completion and emits `PUZZLE_COMPLETED`.
