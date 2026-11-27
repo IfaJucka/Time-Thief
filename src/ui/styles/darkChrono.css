@@ -1,0 +1,86 @@
+:root {
+  --dc-bg-main: #10131c;
+  --dc-bg-secondary: #171e32;
+  --dc-gold: #d6a84f;
+  --dc-cyan: #42d9d0;
+  --dc-silver: #c5cedb;
+  --dc-purple: #8b70c9;
+  --dc-past: #c9954b;
+  --dc-present: #42bfc2;
+  --dc-future: #9169dc;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: var(--dc-bg-main);
+  color: var(--dc-silver);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.app-viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.ui-overlay-shell {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1.25rem;
+}
+
+.ui-banner {
+  align-self: flex-start;
+  background-color: rgba(23, 30, 50, 0.86);
+  border: 1px solid rgba(214, 168, 79, 0.45);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  backdrop-filter: blur(8px);
+}
+
+.ui-banner-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--dc-gold);
+}
+
+.ui-banner-subtitle {
+  margin: 0.25rem 0 0;
+  font-size: 0.82rem;
+  color: var(--dc-silver);
+}
+
+.ui-era-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-self: flex-start;
+}
+
+.ui-era-pill {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  background-color: rgba(23, 30, 50, 0.85);
+  border: 1px solid rgba(197, 206, 219, 0.22);
+  color: var(--dc-silver);
+}
